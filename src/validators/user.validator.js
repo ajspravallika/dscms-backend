@@ -17,6 +17,15 @@ const createMentorValidator = [
   body('designation').optional().trim(),
   body('employeeId').optional().trim(),
   body('phone').optional().trim(),
+  // Optional: lets the admin set a known initial password directly
+  // (e.g. a shared password communicated verbally to a batch of mentors)
+  // instead of relying on the auto-generated one-time temp password.
+  body('initialPassword')
+    .optional()
+    .isLength({ min: 8 })
+    .withMessage('Initial password must be at least 8 characters long')
+    .matches(/\d/)
+    .withMessage('Initial password must contain at least one number'),
 ];
 
 const createStudentValidator = [
@@ -28,6 +37,12 @@ const createStudentValidator = [
   body('section').optional().trim(),
   body('parentContact').optional().trim(),
   body('phone').optional().trim(),
+  body('initialPassword')
+    .optional()
+    .isLength({ min: 8 })
+    .withMessage('Initial password must be at least 8 characters long')
+    .matches(/\d/)
+    .withMessage('Initial password must contain at least one number'),
 ];
 
 const updateUserValidator = [
