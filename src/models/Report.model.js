@@ -29,6 +29,17 @@ const reportSchema = new mongoose.Schema(
       absent: { type: Number, default: 0 },
       excused: { type: Number, default: 0 },
     },
+    // Per-student attendance breakdown for the week
+    studentBreakdown: [
+      {
+        studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        name: String,
+        rollNumber: String,
+        present: { type: Number, default: 0 },
+        absent: { type: Number, default: 0 },
+        excused: { type: Number, default: 0 },
+      },
+    ],
     openConcerns: {
       type: Number,
       default: 0,
