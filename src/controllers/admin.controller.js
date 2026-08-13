@@ -1,116 +1,51 @@
-const asyncHandler = require('../utils/asyncHandler');
-const { success } = require('../utils/apiResponse');
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const { success, error } = require('../utils/apiResponse');
 const userService = require('../services/user.service');
+const sessionService = require('../services/session.service');
 const assignmentService = require('../services/assignment.service');
-const CounselingSession = require('../models/CounselingSession.model');
 const Report = require('../models/Report.model');
+const XLSX = require('xlsx');
 
-// ---------- Mentor management ----------
+const createMentor = asyncHandler(async (req, res) => { const r = await userService.createMentor(req.body, req.user.id); return success(res, 201, r, 'Mentor created'); });
+const listMentors = asyncHandler(async (req, res) => { return success(res, 200, { mentors: await userService.listMentors() }); });
+const updateMentor = asyncHandler(async (req, res) => { return success(res, 200, { mentor: await userService.updateUser(req.params.id, req.body) }); });
+const deactivateMentor = asyncHandler(async (req, res) => { return success(res, 200, { mentor: await userService.deactivateUser(req.params.id) }, 'Mentor deactivated'); });
+const deleteMentor = asyncHandler(async (req, res) => { return success(res, 200, await userService.permanentlyDeleteUser(req.params.id), 'Mentor deleted'); });
+const reassignMentorStudents = asyncHandler(async (req, res) => { return success(res, 200, await userService.reassignMentorStudents(req.params.id, req.body.toMentorId), 'Students reassigned'); });
 
-/** POST /api/v1/admin/mentors */
-const createMentor = asyncHandler(async (req, res) => {
-  const { mentor, tempPassword } = await userService.createMentor(req.body, req.user.id);
-  // tempPassword is returned ONCE here so the admin can communicate it manually.
-  return success(res, 201, { mentor, tempPassword }, 'Mentor account created successfully');
+const bulkUploadMentors = asyncHandler(async (req, res) => {
+  if (!req.file) return error(res, 400, 'No file uploaded');
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  if (!rows.length) return error(res, 400, 'Excel file is empty');
+  const result = await userService.bulkCreateMentors(rows, req.user.id);
+  return success(res, 201, result, `${result.created.length} created, ${result.failed.length} failed`);
 });
 
-/** GET /api/v1/admin/mentors */
-const listMentors = asyncHandler(async (req, res) => {
-  const mentors = await userService.listMentors();
-  return success(res, 200, { mentors }, 'Mentors fetched successfully');
+const createStudent = asyncHandler(async (req, res) => { const r = await userService.createStudent(req.body, req.user.id); return success(res, 201, r, 'Student created'); });
+const listStudents = asyncHandler(async (req, res) => { return success(res, 200, { students: await userService.listStudents(req.query) }); });
+const updateStudent = asyncHandler(async (req, res) => { return success(res, 200, { student: await userService.updateUser(req.params.id, req.body) }); });
+const deactivateStudent = asyncHandler(async (req, res) => { return success(res, 200, { student: await userService.deactivateUser(req.params.id) }, 'Student deactivated'); });
+const deleteStudent = asyncHandler(async (req, res) => { return success(res, 200, await userService.permanentlyDeleteUser(req.params.id), 'Student deleted'); });
+
+const bulkUploadStudents = asyncHandler(async (req, res) => {
+  if (!req.file) return error(res, 400, 'No file uploaded');
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  if (!rows.length) return error(res, 400, 'Excel file is empty');
+  const result = await userService.bulkCreateStudents(rows, req.user.id);
+  return success(res, 201, result, `${result.created.length} created, ${result.failed.length} failed`);
 });
 
-/** PATCH /api/v1/admin/mentors/:id */
-const updateMentor = asyncHandler(async (req, res) => {
-  const mentor = await userService.updateUser(req.params.id, req.body);
-  return success(res, 200, { mentor }, 'Mentor updated successfully');
-});
+const promoteStudents = asyncHandler(async (req, res) => { return success(res, 200, await userService.promoteStudents(req.body.passoutBatchLabel), 'Students promoted'); });
+const listPassoutBatches = asyncHandler(async (req, res) => { return success(res, 200, { batches: await userService.listPassoutBatches() }); });
+const deletePassoutBatch = asyncHandler(async (req, res) => { return success(res, 200, await userService.deletePassoutBatch(req.body.batchLabel), 'Batch deleted'); });
 
-/** DELETE /api/v1/admin/mentors/:id  (soft delete — deactivate, no hard delete in V1) */
-const deactivateMentor = asyncHandler(async (req, res) => {
-  const mentor = await userService.deactivateUser(req.params.id);
-  return success(res, 200, { mentor }, 'Mentor deactivated successfully');
-});
+const assignStudent = asyncHandler(async (req, res) => { return success(res, 201, { assignment: await assignmentService.assignStudentToMentor(req.body.mentorId, req.body.studentId, req.user.id) }, 'Assigned'); });
+const listAssignments = asyncHandler(async (req, res) => { return success(res, 200, { assignments: await assignmentService.listAssignments() }); });
 
-// ---------- Student management ----------
+const listAllSessions = asyncHandler(async (req, res) => { return success(res, 200, { sessions: await sessionService.getAllSessionsForAdmin(req.query) }); });
+const listSubmittedSessions = asyncHandler(async (req, res) => { return success(res, 200, { sessions: await sessionService.getSubmittedSessions(req.query.year) }); });
+const listAllReports = asyncHandler(async (req, res) => { return success(res, 200, { reports: await Report.find({}).populate('mentorId', 'name email department').sort({ weekStartDate: -1 }) }); });
 
-/** POST /api/v1/admin/students */
-const createStudent = asyncHandler(async (req, res) => {
-  const { student, tempPassword } = await userService.createStudent(req.body, req.user.id);
-  return success(res, 201, { student, tempPassword }, 'Student account created successfully');
-});
-
-/** GET /api/v1/admin/students */
-const listStudents = asyncHandler(async (req, res) => {
-  const students = await userService.listStudents();
-  return success(res, 200, { students }, 'Students fetched successfully');
-});
-
-/** PATCH /api/v1/admin/students/:id */
-const updateStudent = asyncHandler(async (req, res) => {
-  const student = await userService.updateUser(req.params.id, req.body);
-  return success(res, 200, { student }, 'Student updated successfully');
-});
-
-/** DELETE /api/v1/admin/students/:id  (soft delete) */
-const deactivateStudent = asyncHandler(async (req, res) => {
-  const student = await userService.deactivateUser(req.params.id);
-  return success(res, 200, { student }, 'Student deactivated successfully');
-});
-
-// ---------- Assignments ----------
-
-/** POST /api/v1/admin/assignments */
-const assignStudent = asyncHandler(async (req, res) => {
-  const { mentorId, studentId } = req.body;
-  const assignment = await assignmentService.assignStudentToMentor(mentorId, studentId, req.user.id);
-  return success(res, 201, { assignment }, 'Student assigned to mentor successfully');
-});
-
-/** GET /api/v1/admin/assignments */
-const listAssignments = asyncHandler(async (req, res) => {
-  const assignments = await assignmentService.listAssignments();
-  return success(res, 200, { assignments }, 'Assignments fetched successfully');
-});
-
-// ---------- System-wide visibility (admin sees everything) ----------
-
-/** GET /api/v1/admin/sessions — ALL counseling records, across all mentors */
-const listAllSessions = asyncHandler(async (req, res) => {
-  const { mentorId, studentId, topic } = req.query;
-  const filter = {};
-  if (mentorId) filter.mentorId = mentorId;
-  if (studentId) filter.studentId = studentId;
-  if (topic) filter.topic = topic;
-
-  const sessions = await CounselingSession.find(filter)
-    .populate('mentorId', 'name email')
-    .populate('studentId', 'name email rollNumber')
-    .sort({ sessionDate: -1 });
-
-  return success(res, 200, { sessions }, 'All counseling sessions fetched successfully');
-});
-
-/** GET /api/v1/admin/reports — ALL mentors' weekly reports */
-const listAllReports = asyncHandler(async (req, res) => {
-  const reports = await Report.find({})
-    .populate('mentorId', 'name email department')
-    .sort({ weekStartDate: -1 });
-
-  return success(res, 200, { reports }, 'All reports fetched successfully');
-});
-
-module.exports = {
-  createMentor,
-  listMentors,
-  updateMentor,
-  deactivateMentor,
-  createStudent,
-  listStudents,
-  updateStudent,
-  deactivateStudent,
-  assignStudent,
-  listAssignments,
-  listAllSessions,
-  listAllReports,
-};
+module.exports = { createMentor, listMentors, updateMentor, deactivateMentor, deleteMentor, reassignMentorStudents, bulkUploadMentors, createStudent, listStudents, updateStudent, deactivateStudent, deleteStudent, bulkUploadStudents, promoteStudents, listPassoutBatches, deletePassoutBatch, assignStudent, listAssignments, listAllSessions, listSubmittedSessions, listAllReports };

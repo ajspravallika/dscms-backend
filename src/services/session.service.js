@@ -1,112 +1,97 @@
 const CounselingSession = require('../models/CounselingSession.model');
-const Attendance = require('../models/Attendance.model');
-const assignmentService = require('./assignment.service');
+const SessionStudent = require('../models/SessionStudent.model');
+const Student = require('../models/Student.model');
+const Notification = require('../models/Notification.model');
 
-/**
- * Creates a counseling session record. Verifies the mentor actually
- * owns (is assigned to) this student before writing — this is the
- * authorization boundary, independent of anything the client sends.
- */
 async function createSession(mentorId, payload) {
-  await assignmentService.verifyMentorOwnsStudent(mentorId, payload.studentId);
+  const { sessionDate, year, topic, generalNotes, studentRecords } = payload;
 
   const session = await CounselingSession.create({
-    studentId: payload.studentId,
-    mentorId,
-    sessionDate: payload.sessionDate,
-    topic: payload.topic,
-    remarks: payload.remarks,
-    actionItems: payload.actionItems,
-    nextFollowUpDate: payload.nextFollowUpDate,
-    visibility: payload.visibility || 'student-visible',
+    mentorId, sessionDate, year, topic: topic || 'other', generalNotes: generalNotes || '',
   });
 
-  return session;
+  const assignedStudents = await Student.find({ mentorId, year: Number(year), isActive: true, isPassout: false });
+
+  if (assignedStudents.length === 0) {
+    await CounselingSession.findByIdAndDelete(session._id);
+    const err = new Error(`No active Year ${year} students assigned to you.`);
+    err.statusCode = 400; throw err;
+  }
+
+  const recordMap = {};
+  if (studentRecords && Array.isArray(studentRecords)) {
+    for (const r of studentRecords) recordMap[r.studentId] = r;
+  }
+
+  const docs = assignedStudents.map((student) => {
+    const record = recordMap[student._id.toString()];
+    const isPresent = record && record.attendance === 'present';
+    return {
+      sessionId: session._id, studentId: student._id, mentorId,
+      attendance: record ? record.attendance : 'absent',
+      remarks: isPresent ? (record.remarks || '') : '',
+      actionItems: isPresent ? (record.actionItems || '') : '',
+      nextFollowUpDate: isPresent ? (record.nextFollowUpDate || null) : null,
+    };
+  });
+
+  await SessionStudent.insertMany(docs);
+  return { session, totalStudents: assignedStudents.length };
 }
 
-/**
- * Lists sessions for the mentor's own students only. Optional
- * studentId filter is still re-validated against ownership.
- */
-async function listSessionsForMentor(mentorId, studentId) {
+async function listSessionsForMentor(mentorId, year) {
   const filter = { mentorId };
-  if (studentId) {
-    await assignmentService.verifyMentorOwnsStudent(mentorId, studentId);
-    filter.studentId = studentId;
-  }
+  if (year) filter.year = Number(year);
+  const sessions = await CounselingSession.find(filter).sort({ sessionDate: -1 });
 
-  return CounselingSession.find(filter)
-    .populate('studentId', 'name email rollNumber')
-    .sort({ sessionDate: -1 });
+  return Promise.all(sessions.map(async (session) => {
+    const total = await SessionStudent.countDocuments({ sessionId: session._id });
+    const present = await SessionStudent.countDocuments({ sessionId: session._id, attendance: 'present' });
+    return { ...session.toObject(), totalStudents: total, presentCount: present, absentCount: total - present };
+  }));
 }
 
-/**
- * Edits an existing session. Sessions are versioned rather than silently
- * overwritten — version increments on every edit so a history of changes
- * is implicit in the document (full diff history is a V2 enhancement;
- * V1 keeps it simple with a version counter + updatedAt timestamp).
- * Only the owning mentor may edit; admin-level override is not exposed
- * in V1 to keep mentor notes attributable to the mentor who wrote them.
- */
-async function updateSession(mentorId, sessionId, updates) {
+async function getSessionDetail(mentorId, sessionId) {
   const session = await CounselingSession.findOne({ _id: sessionId, mentorId });
-
-  if (!session) {
-    const err = new Error('Session not found or you do not have access to it.');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  const allowedFields = ['remarks', 'topic', 'actionItems', 'nextFollowUpDate', 'visibility'];
-  for (const field of allowedFields) {
-    if (updates[field] !== undefined) session[field] = updates[field];
-  }
-  session.version += 1;
-
-  await session.save();
-  return session;
+  if (!session) { const err = new Error('Session not found.'); err.statusCode = 404; throw err; }
+  const studentRecords = await SessionStudent.find({ sessionId })
+    .populate('studentId', 'name rollNumber department section').sort({ attendance: 1 });
+  return { session, studentRecords };
 }
 
-/**
- * Counseling history for one student — used both by the mentor's own
- * "student profile" view and indirectly validated for the student's
- * self-view (student.controller.js filters to student-visible only).
- */
-async function getSessionHistoryForStudent(mentorId, studentId) {
-  await assignmentService.verifyMentorOwnsStudent(mentorId, studentId);
-
-  return CounselingSession.find({ mentorId, studentId }).sort({ sessionDate: -1 });
+async function submitSessionToAdmin(mentorId, sessionId) {
+  const session = await CounselingSession.findOne({ _id: sessionId, mentorId });
+  if (!session) { const err = new Error('Session not found.'); err.statusCode = 404; throw err; }
+  session.submittedToAdmin = true; session.submittedAt = new Date();
+  await session.save(); return session;
 }
 
-/**
- * Marks attendance for a session. Verifies ownership the same way as
- * createSession.
- */
-async function markAttendance(mentorId, payload) {
-  await assignmentService.verifyMentorOwnsStudent(mentorId, payload.studentId);
-
-  const attendance = await Attendance.create({
-    sessionId: payload.sessionId,
-    studentId: payload.studentId,
-    mentorId,
-    date: payload.date,
-    status: payload.status,
-    remarks: payload.remarks,
-  });
-
-  return attendance;
+async function getStudentOwnHistory(studentId) {
+  return SessionStudent.find({ studentId, visibility: 'student-visible' })
+    .populate('sessionId', 'sessionDate topic year generalNotes')
+    .populate('mentorId', 'name').sort({ createdAt: -1 });
 }
 
-async function getAttendanceForStudent(mentorId, studentId) {
-  await assignmentService.verifyMentorOwnsStudent(mentorId, studentId);
-  return Attendance.find({ mentorId, studentId }).sort({ date: -1 });
+async function getSubmittedSessions(year) {
+  const filter = { submittedToAdmin: true };
+  if (year) filter.year = Number(year);
+  const sessions = await CounselingSession.find(filter)
+    .populate('mentorId', 'name email department').sort({ submittedAt: -1 });
+
+  return Promise.all(sessions.map(async (session) => {
+    const studentRecords = await SessionStudent.find({ sessionId: session._id })
+      .populate('studentId', 'name rollNumber');
+    const present = studentRecords.filter(r => r.attendance === 'present').length;
+    return { ...session.toObject(), totalStudents: studentRecords.length, presentCount: present, absentCount: studentRecords.length - present, studentRecords };
+  }));
 }
 
-module.exports = {
-  createSession,
-  listSessionsForMentor,
-  updateSession,
-  getSessionHistoryForStudent,
-  markAttendance,
-  getAttendanceForStudent,
-};
+async function getAllSessionsForAdmin(filters = {}) {
+  const filter = {};
+  if (filters.mentorId) filter.mentorId = filters.mentorId;
+  if (filters.year) filter.year = Number(filters.year);
+  if (filters.topic) filter.topic = filters.topic;
+  return CounselingSession.find(filter).populate('mentorId', 'name email').sort({ sessionDate: -1 });
+}
+
+module.exports = { createSession, listSessionsForMentor, getSessionDetail, submitSessionToAdmin, getStudentOwnHistory, getSubmittedSessions, getAllSessionsForAdmin };

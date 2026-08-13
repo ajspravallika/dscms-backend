@@ -1,38 +1,38 @@
 const express = require('express');
 const router = express.Router();
-
+const multer = require('multer');
 const { protect } = require('../middlewares/auth.middleware');
 const { allow } = require('../middlewares/rbac.middleware');
+const { body } = require('express-validator');
 const { validate } = require('../middlewares/validate.middleware');
-const {
-  createMentorValidator,
-  createStudentValidator,
-  updateUserValidator,
-  assignStudentValidator,
-} = require('../validators/user.validator');
-const adminController = require('../controllers/admin.controller');
+const c = require('../controllers/admin.controller');
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Every route in this file is admin-only.
 router.use(protect, allow('admin'));
 
-// Mentors
-router.post('/mentors', createMentorValidator, validate, adminController.createMentor);
-router.get('/mentors', adminController.listMentors);
-router.patch('/mentors/:id', updateUserValidator, validate, adminController.updateMentor);
-router.delete('/mentors/:id', adminController.deactivateMentor);
+router.post('/mentors', c.createMentor);
+router.get('/mentors', c.listMentors);
+router.patch('/mentors/:id', c.updateMentor);
+router.post('/mentors/:id/deactivate', c.deactivateMentor);
+router.delete('/mentors/:id', c.deleteMentor);
+router.post('/mentors/:id/reassign', [body('toMentorId').isMongoId()], validate, c.reassignMentorStudents);
+router.post('/mentors/bulk-upload', upload.single('file'), c.bulkUploadMentors);
 
-// Students
-router.post('/students', createStudentValidator, validate, adminController.createStudent);
-router.get('/students', adminController.listStudents);
-router.patch('/students/:id', updateUserValidator, validate, adminController.updateStudent);
-router.delete('/students/:id', adminController.deactivateStudent);
+router.post('/students', c.createStudent);
+router.get('/students', c.listStudents);
+router.patch('/students/:id', c.updateStudent);
+router.post('/students/:id/deactivate', c.deactivateStudent);
+router.delete('/students/:id', c.deleteStudent);
+router.post('/students/bulk-upload', upload.single('file'), c.bulkUploadStudents);
+router.post('/students/promote', c.promoteStudents);
+router.get('/students/passout-batches', c.listPassoutBatches);
+router.delete('/students/passout-batch', [body('batchLabel').notEmpty()], validate, c.deletePassoutBatch);
 
-// Assignments
-router.post('/assignments', assignStudentValidator, validate, adminController.assignStudent);
-router.get('/assignments', adminController.listAssignments);
+router.post('/assignments', c.assignStudent);
+router.get('/assignments', c.listAssignments);
 
-// System-wide visibility
-router.get('/sessions', adminController.listAllSessions);
-router.get('/reports', adminController.listAllReports);
+router.get('/sessions', c.listAllSessions);
+router.get('/sessions/submitted', c.listSubmittedSessions);
+router.get('/reports', c.listAllReports);
 
 module.exports = router;
