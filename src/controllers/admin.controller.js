@@ -4,7 +4,9 @@ const userService = require('../services/user.service');
 const assignmentService = require('../services/assignment.service');
 const sessionService = require('../services/session.service');
 const deptService = require('../services/department.service');
+const Student = require('../models/Student.model');
 const XLSX = require('xlsx');
+
 const createMentor = asyncHandler(async (req, res) => { const r = await userService.createMentor(req.body, req.user.id); return success(res, 201, r, 'Mentor created'); });
 const listMentors = asyncHandler(async (req, res) => {
   const mentors = await userService.listMentors(req.query);
@@ -16,11 +18,21 @@ const deactivateMentor = asyncHandler(async (req, res) => success(res, 200, { me
 const deleteMentor = asyncHandler(async (req, res) => success(res, 200, await userService.permanentlyDeleteUser(req.params.id), 'Mentor deleted'));
 const bulkUploadMentors = asyncHandler(async (req, res) => {
   if (!req.file) return error(res, 400, 'No file uploaded');
-  const wb = XLSX.read(req.file.buffer, { type: 'buffer' }); const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
   if (!rows.length) return error(res, 400, 'Empty file');
   const r = await userService.bulkCreateMentors(rows, req.user.id);
   return success(res, 201, r, r.created.length + ' created, ' + r.duplicates.length + ' duplicates, ' + r.failed.length + ' failed');
 });
+
+// Get all students assigned to a specific mentor — grouped by year
+const getMentorStudents = asyncHandler(async (req, res) => {
+  const students = await Student.find({ mentorId: req.params.mentorId, isActive: true, isPassout: false }).sort({ year: 1, name: 1 });
+  const grouped = { 1: [], 2: [], 3: [], 4: [] };
+  students.forEach(s => { if (s.year && grouped[s.year]) grouped[s.year].push(s); });
+  return success(res, 200, { students, grouped, total: students.length });
+});
+
 const createStudent = asyncHandler(async (req, res) => { const r = await userService.createStudent(req.body, req.user.id); return success(res, 201, r, 'Student created'); });
 const listStudents = asyncHandler(async (req, res) => success(res, 200, { students: await userService.listStudents(req.query) }));
 const updateStudent = asyncHandler(async (req, res) => success(res, 200, { student: await userService.updateUser(req.params.id, req.body) }));
@@ -28,11 +40,13 @@ const deactivateStudent = asyncHandler(async (req, res) => success(res, 200, { s
 const deleteStudent = asyncHandler(async (req, res) => success(res, 200, await userService.permanentlyDeleteUser(req.params.id), 'Student deleted'));
 const bulkUploadStudents = asyncHandler(async (req, res) => {
   if (!req.file) return error(res, 400, 'No file uploaded');
-  const wb = XLSX.read(req.file.buffer, { type: 'buffer' }); const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
   if (!rows.length) return error(res, 400, 'Empty file');
   const r = await userService.bulkCreateStudents(rows, req.user.id);
   return success(res, 201, r, r.created.length + ' created, ' + r.duplicates.length + ' duplicates, ' + r.failed.length + ' failed');
 });
+
 const assignStudents = asyncHandler(async (req, res) => { const r = await assignmentService.assignStudents(req.body.mentorId, req.body.studentIds, req.user.id); return success(res, 200, r, r.assigned.length + ' assigned'); });
 const unassignStudents = asyncHandler(async (req, res) => success(res, 200, await assignmentService.unassignStudents(req.body.studentIds)));
 const listAssignments = asyncHandler(async (req, res) => success(res, 200, { assignments: await assignmentService.listAssignments(req.query) }));
@@ -40,8 +54,23 @@ const getMentorWorkload = asyncHandler(async (req, res) => success(res, 200, { w
 const promoteStudents = asyncHandler(async (req, res) => success(res, 200, await userService.promoteStudents(req.body.passoutBatchLabel), 'Students promoted'));
 const listPassoutBatches = asyncHandler(async (req, res) => success(res, 200, { batches: await userService.listPassoutBatches() }));
 const deletePassoutBatch = asyncHandler(async (req, res) => success(res, 200, await userService.deletePassoutBatch(req.body.batchLabel), 'Batch deleted'));
-const listDepartments = asyncHandler(async (req, res) => success(res, 200, { departments: await deptService.listDepartments(req.query.activeOnly === 'true') }));
+
+// Departments — seed defaults on first list call
+const listDepartments = asyncHandler(async (req, res) => {
+  await deptService.seedDefaultDepartments(); // ensures defaults exist
+  return success(res, 200, { departments: await deptService.listDepartments(req.query.activeOnly === 'true') });
+});
 const createDepartment = asyncHandler(async (req, res) => success(res, 201, { department: await deptService.createDepartment(req.body, req.user.id) }, 'Department created'));
 const updateDepartment = asyncHandler(async (req, res) => success(res, 200, { department: await deptService.updateDepartment(req.params.id, req.body) }));
+
 const getAllSessions = asyncHandler(async (req, res) => success(res, 200, { sessions: await sessionService.getAllSessionsForAdmin(req.query) }));
-module.exports = { createMentor, listMentors, updateMentor, deactivateMentor, deleteMentor, bulkUploadMentors, createStudent, listStudents, updateStudent, deactivateStudent, deleteStudent, bulkUploadStudents, assignStudents, unassignStudents, listAssignments, getMentorWorkload, promoteStudents, listPassoutBatches, deletePassoutBatch, listDepartments, createDepartment, updateDepartment, getAllSessions };
+
+module.exports = {
+  createMentor, listMentors, updateMentor, deactivateMentor, deleteMentor, bulkUploadMentors,
+  getMentorStudents,
+  createStudent, listStudents, updateStudent, deactivateStudent, deleteStudent, bulkUploadStudents,
+  assignStudents, unassignStudents, listAssignments, getMentorWorkload,
+  promoteStudents, listPassoutBatches, deletePassoutBatch,
+  listDepartments, createDepartment, updateDepartment,
+  getAllSessions,
+};
