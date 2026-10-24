@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { body, param } = require('express-validator');
+const { body } = require('express-validator');
 const { protect } = require('../middlewares/auth.middleware');
 const { allow } = require('../middlewares/rbac.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const c = require('../controllers/mentor.controller');
+
 router.use(protect, allow('mentor'));
 router.get('/dashboard', c.getDashboard);
 router.get('/students', c.listMyStudents);
@@ -12,6 +13,7 @@ router.get('/students/year/:year/for-session', c.getStudentsForSession);
 router.post('/sessions', c.createOrUpdateSession);
 router.get('/sessions', c.listSessions);
 router.get('/sessions/:id', c.getSessionById);
+router.patch('/sessions/:id', c.updateSession);
 router.post('/sessions/:id/submit', c.submitSession);
 router.post('/messages', [body('receiverId').isMongoId(), body('content').trim().notEmpty()], validate, c.sendMessage);
 router.post('/messages/group', [body('year').isInt({min:1,max:4}), body('content').trim().notEmpty()], validate, c.sendGroupMessage);
