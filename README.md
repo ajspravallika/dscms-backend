@@ -1,121 +1,213 @@
-# DSCMS Backend — Version 1
+# DSCMS — Digital Student Counseling Management System
 
-Digital Student Counseling Management System — REST API.
+> A web application built for **Shri Vishnu Engineering College for Women (Autonomous), Bhimavaram** to digitize and streamline the student counseling process.
 
-## Tech Stack
-- Node.js + Express.js
-- MongoDB Atlas + Mongoose
-- JWT Authentication (single access token, no refresh-token rotation in V1)
-- bcryptjs for password hashing
-
-## What's intentionally excluded from V1
-- Audit logs
-- Email service (temp passwords/notifications are communicated manually by the admin)
-- Cron jobs (weekly reports are generated on-demand via an API call)
-- Docker
-- CSV bulk upload (students/mentors are created one at a time via API)
-- Analytics/dashboards beyond basic list/filter endpoints
-- Refresh tokens (a single JWT is issued per login, expires in `JWT_EXPIRES_IN`)
+🌐 **Live:** [dscms-frontend.onrender.com](https://dscms-frontend.onrender.com)
 
 ---
 
-## 1. Prerequisites
-- Node.js v18 or higher
-- npm v9 or higher
-- A MongoDB Atlas cluster (free tier is sufficient for development)
+## What is this?
 
-## 2. Installation
+Every student at SVECW is assigned a faculty mentor who conducts periodic counseling sessions — checking on their academics, personal wellbeing, and career goals. Before DSCMS, all of this was tracked with paper registers and Excel sheets.
+
+**DSCMS replaces that with a clean, role-based web app** where:
+- The **admin** manages all accounts, assigns students to mentors, and views session records
+- **Mentors** record counseling sessions, message students, and generate weekly reports
+- **Students** view their own counseling history, message their mentor, and raise concerns
+
+---
+
+## Features
+
+### Admin
+- Create mentor and student accounts individually or via **Excel bulk upload**
+- **Auto-assign** students to mentors by department, year, and section — with configurable split size (e.g. first 5 students to mentor 1, next 5 to mentor 2)
+- View all mentees of any mentor grouped by year
+- Manage departments with custom sections (A, B, C...)
+- **Promote year groups** at end of academic year — Year 1→2, 2→3, 3→4, Year 4 graduates to passout batch
+- View all submitted counseling sessions across all mentors
+- Configure default passwords from the Settings page
+
+### Mentor
+- Record counseling sessions for a year group
+- Mark each student present or absent
+- Add individual remarks, purpose, outcome, and action items per student
+- **Edit draft sessions** before submitting — useful when students arrive at different times
+- Submit sessions to admin when done
+- Message individual students or **broadcast to an entire year group**
+- Respond to student concerns and track status (Open → In Progress → Resolved)
+- Generate weekly attendance and counseling reports
+
+### Student
+- View own counseling history — only their records, not others
+- Message assigned mentor directly
+- Submit concerns (Academic, Personal, Health, Financial, Other)
+- Receive notifications — auto-marked as read on page open
+- View assigned mentor's contact details
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, Vite, Tailwind CSS, React Router v6, Axios |
+| Backend | Node.js, Express.js, JWT Authentication, bcryptjs |
+| Database | MongoDB Atlas (cloud) |
+| File Uploads | Multer + XLSX (Excel parsing) |
+| Deployment | Render (Frontend + Backend), MongoDB Atlas |
+
+---
+
+## How It Works
+
+### Three roles, one login page
+Users log in with their college email (`@svecw.edu.in`). The system detects their role (Admin / Mentor / Student) and shows them their own dashboard. No role selection needed.
+
+### Sessions
+A counseling session is recorded per year group. One mentor, one date, all assigned students — each with individual attendance and remarks. Students can only see their own record, never others.
+
+### Messages
+Mentor and student share a private conversation thread. Both sides can initiate. The `conversationId` is built from both their IDs so both always find the same thread.
+
+### Notifications
+When a mentor sends a message or responds to a concern, the student gets an in-app notification. Notifications auto-mark as read when the student opens the page.
+
+### Bulk Upload
+Admin uploads an Excel file with student or mentor details. The system creates all accounts with the default password (`Student@dscms` or `Mentor@dscms`). Admin tells everyone the default password — they log in and can change it.
+
+---
+
+## Getting Started (Local Setup)
+
+### Prerequisites
+- Node.js >= 18
+- MongoDB Atlas account (free tier works)
+- Git
+
+### 1. Clone both repos
 
 ```bash
-# 1. Clone the repository and move into the backend folder
-git clone <your-repo-url>
+git clone https://github.com/ajspravallika/dscms-backend.git
+git clone https://github.com/ajspravallika/dscms-frontend.git
+```
+
+### 2. Backend setup
+
+```bash
 cd dscms-backend
-
-# 2. Install dependencies
 npm install
-
-# 3. Create your local environment file
 cp .env.example .env
 ```
 
-## 3. Configure Environment Variables
-
-Open `.env` and fill in real values:
-
+Fill in `.env`:
 ```
-NODE_ENV=development
 PORT=5000
+MONGO_URI=your_mongodb_connection_string
+JWT_SECRET=any_strong_random_string
 CLIENT_ORIGIN=http://localhost:5173
-
-MONGO_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/dscms?retryWrites=true&w=majority
-
-JWT_SECRET=<generate a long random string>
-JWT_EXPIRES_IN=8h
-
 ALLOWED_EMAIL_DOMAIN=svecw.edu.in
-
-SEED_ADMIN_NAME=System Administrator
 SEED_ADMIN_EMAIL=admin@svecw.edu.in
-SEED_ADMIN_PASSWORD=ChangeMe@123
+SEED_ADMIN_PASSWORD=YourPassword@123
+SEED_ADMIN_NAME=System Administrator
 ```
-
-> Generate a strong `JWT_SECRET` with: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
-
-## 4. MongoDB Atlas Setup
-1. Create a free cluster at https://www.mongodb.com/cloud/atlas
-2. Create a database user (username/password)
-3. Under Network Access, allow your current IP (or `0.0.0.0/0` for local dev only — never in production)
-4. Copy the connection string into `MONGO_URI` in `.env`, replacing `<username>`, `<password>`, and the database name (`dscms`)
-
-## 5. Seed the First Admin Account
-Since self-registration is disabled and admins create every other account, you must bootstrap the very first admin manually:
 
 ```bash
-npm run seed:admin
+npm run seed:admin   # creates the admin account
+npm run dev          # starts backend on port 5000
 ```
 
-This reads `SEED_ADMIN_*` values from `.env` and creates the initial admin. **Change this password immediately after first login** — the API will require it via `mustResetPassword`.
-
-## 6. Run the Server
+### 3. Frontend setup
 
 ```bash
-# Development (auto-restart on file changes)
-npm run dev
-
-# Production
-npm start
+cd dscms-frontend
+npm install
+cp .env.example .env
 ```
 
-The API will be available at `http://localhost:5000/api/v1`.
-Health check: `GET http://localhost:5000/health`
-
-## 7. Verify the Setup
+Fill in `.env`:
+```
+VITE_API_BASE_URL=http://localhost:5000/api/v1
+```
 
 ```bash
-# Login as the seeded admin
-curl -X POST http://localhost:5000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@svecw.edu.in","password":"ChangeMe@123"}'
+npm run dev   # starts frontend on http://localhost:5173
 ```
 
-You should receive a `token` in the response. Use it as a Bearer token for all subsequent requests:
+---
 
-```bash
-curl http://localhost:5000/api/v1/auth/me \
-  -H "Authorization: Bearer <token>"
+## Default Passwords
+
+| Role | Default Password |
+|---|---|
+| Mentor | `Mentor@dscms` |
+| Student | `Student@dscms` |
+
+Admin can view and change these defaults from **Admin → Settings**.
+
+---
+
+## Excel Bulk Upload Format
+
+### Mentors
+```
+Name | Email | Department | Designation | EmployeeId | Phone
 ```
 
-## 8. Typical First-Time Workflow
-1. `npm run seed:admin` → creates the first admin
-2. Admin logs in → forced to change password (`POST /auth/change-password`)
-3. Admin creates mentor accounts (`POST /admin/mentors`) → note the returned `tempPassword` for each, communicate manually
-4. Admin creates student accounts (`POST /admin/students`) → same pattern
-5. Admin assigns students to mentors (`POST /admin/assignments`)
-6. Mentors and students log in with their temp passwords and are forced to reset them
-7. Mentors begin recording sessions, attendance, and messaging their assigned students
+### Students
+```
+Name | Email | RollNumber | Department | Year | Section | Phone | ParentContact
+```
+
+All accounts are created with the default password. Add an `InitialPassword` column to override per row.
+
+---
 
 ## Project Structure
-See `docs/` or the project README section in the main SRS document for the full annotated folder structure.
 
-## API Base Path
-All endpoints are prefixed with `/api/v1`. See the SRS document for the complete endpoint reference.
+```
+dscms-backend/
+├── src/
+│   ├── config/         # DB connection, constants
+│   ├── models/         # Mongoose models (User, Mentor, Student, Session, etc.)
+│   ├── services/       # Business logic layer
+│   ├── controllers/    # Route handlers
+│   ├── middlewares/    # Auth, RBAC, validation, error handling
+│   ├── routes/         # API routes
+│   └── utils/          # Helpers, seed script
+
+dscms-frontend/
+├── src/
+│   ├── api/            # Axios calls to backend
+│   ├── components/     # Reusable UI components
+│   ├── context/        # Auth context
+│   ├── hooks/          # useAuth, useFetch
+│   ├── pages/          # Admin, Mentor, Student pages
+│   ├── routes/         # Protected and role-based routing
+│   └── utils/          # Nav config, dept sections helper
+```
+
+---
+
+## Security
+
+- Passwords hashed with **bcrypt** (12 salt rounds)
+- **JWT tokens** expire in 8 hours
+- **Rate limiting** on login — 20 requests per 15 minutes
+- Only **@svecw.edu.in** emails are accepted
+- Role-based middleware blocks wrong roles at the API level
+- **Double confirmation** required before permanent deletion
+- **Force password reset** on first login if admin didn't set an initial password
+
+---
+
+## Built By
+
+**Jahnavi Aratikatla**
+B.Tech — Artificial Intelligence & Machine Learning, Year 3
+Shri Vishnu Engineering College for Women (Autonomous), Bhimavaram
+GitHub: [@ajspravallika](https://github.com/ajspravallika)
+
+---
+
+> Built to solve a real problem at SVECW — replacing paper-based student counseling records with a structured, accessible digital system.
